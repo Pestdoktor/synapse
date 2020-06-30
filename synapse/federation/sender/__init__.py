@@ -69,6 +69,9 @@ class FederationSender(object):
 
         self._transaction_manager = TransactionManager(hs)
 
+        self._instance_name = hs.get_instance_name()
+        self._federation_shard_config = hs.config.federation.federation_shard_config
+
         # map from destination to PerDestinationQueue
         self._per_destination_queues = {}  # type: Dict[str, PerDestinationQueue]
 
@@ -191,7 +194,13 @@ class FederationSender(object):
                         )
                         return
 
-                    destinations = set(destinations)
+                    destinations = {
+                        d
+                        for d in destinations
+                        if self._federation_shard_config.should_send_to(
+                            self._instance_name, d
+                        )
+                    }
 
                     if send_on_behalf_of is not None:
                         # If we are sending the event on behalf of another server
