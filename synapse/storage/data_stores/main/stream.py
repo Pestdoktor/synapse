@@ -45,7 +45,11 @@ from twisted.internet import defer
 from synapse.logging.context import make_deferred_yieldable, run_in_background
 from synapse.storage._base import SQLBaseStore
 from synapse.storage.data_stores.main.events_worker import EventsWorkerStore
-from synapse.storage.database import Database
+from synapse.storage.database import (
+    Database,
+    LoggingTransaction,
+    make_in_list_sql_clause,
+)
 from synapse.storage.engines import PostgresEngine
 from synapse.types import RoomStreamToken
 from synapse.util.caches.stream_change_cache import StreamChangeCache
@@ -252,6 +256,18 @@ class StreamWorkerStore(EventsWorkerStore, SQLBaseStore):
 
     def __init__(self, database: Database, db_conn, hs):
         super(StreamWorkerStore, self).__init__(database, db_conn, hs)
+
+        self._instance_name = hs.get_instance_name()
+        self._send_federation = hs.config.federation.send_federation
+        self._federation_shard_config = hs.config.federation.federation_shard_config
+
+        cur = LoggingTransaction(
+            db_conn.cursor(),
+            name="_reset_federation_positions_txn",
+            database_engine=self.database_engine,
+        )
+        self._reset_federation_positions_txn(cur)
+        cur.close()
 
         events_max = self.get_room_max_stream_ordering()
         event_cache_prefill, min_event_val = self.db.get_cache_dict(
@@ -797,17 +813,51 @@ class StreamWorkerStore(EventsWorkerStore, SQLBaseStore):
         return self.db.simple_select_one_onecol(
             table="federation_stream_position",
             retcol="stream_id",
-            keyvalues={"type": typ},
+            keyvalues={"type": typ, "instance_name": self._instance_name},
             desc="get_federation_out_pos",
         )
 
     def update_federation_out_pos(self, typ, stream_id):
         return self.db.simple_update_one(
             table="federation_stream_position",
-            keyvalues={"type": typ},
+            keyvalues={"type": typ, "instance_name": self._instance_name},
             updatevalues={"stream_id": stream_id},
             desc="update_federation_out_pos",
         )
+
+    def _reset_federation_positions_txn(self, txn):
+        # We don't reset if we don't send federation or federation sending is
+        # not configured to be shardable.
+        current_instances = self._federation_shard_config.instances
+        if not current_instances or self._instance_name not in current_instances:
+            return
+
+        sql = """
+            SELECT type, MIN(stream_id) FROM federation_stream_position
+            GROUP BY type
+        """
+        txn.execute(sql)
+        min_positions = dict(txn)  # Map from type -> min position
+
+        # Ensure we do actually have some values here
+        assert set(min_positions) == {"federation", "events"}
+
+        sql = """
+            DELETE FROM federation_stream_position
+            WHERE NOT (%s)
+        """
+        clause, args = make_in_list_sql_clause(
+            txn.database_engine, "instance_name", current_instances
+        )
+        txn.execute(sql % (clause,), args)
+
+        for typ, stream_id in min_positions.items():
+            self.db.simple_upsert_txn(
+                txn,
+                table="federation_stream_position",
+                keyvalues={"type": typ, "instance_name": self._instance_name},
+                values={"stream_id": stream_id},
+            )
 
     def has_room_changed_since(self, room_id, stream_id):
         return self._events_stream_cache.has_entity_changed(room_id, stream_id)
