@@ -50,10 +50,6 @@ class BaseStreamTestCase(unittest.HomeserverTestCase):
         store = hs.get_datastore()
         self.database = store.db
 
-        self.get_success(
-            self.database.runInteraction("reset", store._reset_federation_positions_txn)
-        )
-
         # Make a new HomeServer object for the worker
         self.reactor.lookups["testserv"] = "1.2.3.4"
 
