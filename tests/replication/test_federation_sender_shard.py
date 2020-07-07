@@ -47,8 +47,7 @@ class BaseStreamTestCase(unittest.HomeserverTestCase):
         self.server_factory = ReplicationStreamProtocolFactory(hs)
         self.streamer = hs.get_replication_streamer()
 
-        store = hs.get_datastore()
-        self.database = store.db
+        self.database = hs.get_datastore().db
 
         # Make a new HomeServer object for the worker
         self.reactor.lookups["testserv"] = "1.2.3.4"
