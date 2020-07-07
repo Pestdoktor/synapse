@@ -15,3 +15,5 @@
 
 -- We need to store the stream positions by instance in a sharded config world.
 ALTER TABLE federation_stream_position ADD COLUMN instance_name TEXT;
+
+CREATE UNIQUE INDEX federation_stream_position_instance ON federation_stream_position(type, instance_name);

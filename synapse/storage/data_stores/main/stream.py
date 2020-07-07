@@ -810,17 +810,29 @@ class StreamWorkerStore(EventsWorkerStore, SQLBaseStore):
         return upper_bound, events
 
     def get_federation_out_pos(self, typ):
+        keyvalues = {"type": typ}
+
+        current_instances = self._federation_shard_config.instances
+        if current_instances:
+            keyvalues["instance_name"] = self._instance_name
+
         return self.db.simple_select_one_onecol(
             table="federation_stream_position",
             retcol="stream_id",
-            keyvalues={"type": typ, "instance_name": self._instance_name},
+            keyvalues=keyvalues,
             desc="get_federation_out_pos",
         )
 
     def update_federation_out_pos(self, typ, stream_id):
+        keyvalues = {"type": typ}
+
+        current_instances = self._federation_shard_config.instances
+        if current_instances:
+            keyvalues["instance_name"] = self._instance_name
+
         return self.db.simple_update_one(
             table="federation_stream_position",
-            keyvalues={"type": typ, "instance_name": self._instance_name},
+            keyvalues=keyvalues,
             updatevalues={"stream_id": stream_id},
             desc="update_federation_out_pos",
         )
