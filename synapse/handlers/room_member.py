@@ -16,7 +16,7 @@
 import abc
 import logging
 from http import HTTPStatus
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 from unpaddedbase64 import encode_base64
 
@@ -1057,16 +1057,29 @@ class RoomMemberMasterHandler(RoomMemberHandler):
             logger.warning("Failed to reject invite: %s", e)
 
             return await self._locally_reject_invite(
-                invite_event, requester, txn_id, content
+                invite_event, txn_id, requester, content
             )
 
     async def _locally_reject_invite(
         self,
         invite_event: EventBase,
-        requester: Requester,
         txn_id: Optional[str],
+        requester: Requester,
         content: JsonDict,
     ) -> Tuple[str, int]:
+        """Generate a local invite rejection
+
+        This is called after  we fail to reject an invite via a remote server. It
+        generates an out-of-band membership event locally.
+
+        Args:
+            invite_event: the invite to be rejected
+            txn_id: optional transaction ID supplied by the client
+            requester:  user making the rejection request, according to the access token
+            content: additional content to include in the rejection event.
+               Normally an empty dict.
+        """
+
         room_id = invite_event.room_id
         target_user = invite_event.state_key
         room_version = await self.store.get_room_version(room_id)
@@ -1077,7 +1090,7 @@ class RoomMemberMasterHandler(RoomMemberHandler):
         # the invite itself.
         #
         # the prev_events are just the invite.
-        invite_hash = invite_event.event_id  # type: Union[str, Dict]
+        invite_hash = invite_event.event_id  # type: Union[str, Tuple]
         if room_version.event_format == EventFormatVersions.V1:
             alg, h = compute_event_reference_hash(invite_event)
             invite_hash = (invite_event.event_id, {alg: encode_base64(h)})
