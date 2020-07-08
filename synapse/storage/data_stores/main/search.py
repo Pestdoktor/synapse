@@ -478,7 +478,10 @@ class SearchStore(SearchBackgroundUpdateStore):
         """
         clauses = []
 
-        search_query = _parse_query(self.database_engine, search_term)
+        if search_term is not None:
+            search_query = _parse_query(self.database_engine, search_term)
+        else:
+            search_query = None
 
         args = []
 
@@ -516,7 +519,9 @@ class SearchStore(SearchBackgroundUpdateStore):
             )
             args.extend([origin_server_ts, origin_server_ts, stream])
 
-        if isinstance(self.database_engine, PostgresEngine):
+        # TODO: implement missing search_term for Sqlite3Engine
+        if isinstance(self.database_engine, PostgresEngine) and \
+           search_query is not None:
             sql = (
                 "SELECT ts_rank_cd(vector, to_tsquery('english', ?)) as rank,"
                 " origin_server_ts, stream_ordering, room_id, event_id"
@@ -530,6 +535,15 @@ class SearchStore(SearchBackgroundUpdateStore):
                 " WHERE vector @@ to_tsquery('english', ?) AND "
             )
             count_args = [search_query] + count_args
+        elif isinstance(self.database_engine, PostgresEngine):
+            sql = (
+                "SELECT origin_server_ts, stream_ordering, room_id, event_id"
+                " FROM event_search WHERE "
+            )
+
+            count_sql = (
+                "SELECT room_id, count(*) as count FROM event_search WHERE "
+            )
         elif isinstance(self.database_engine, Sqlite3Engine):
             # We use CROSS JOIN here to ensure we use the right indexes.
             # https://sqlite.org/optoverview.html#crossjoin
@@ -593,7 +607,8 @@ class SearchStore(SearchBackgroundUpdateStore):
         event_map = {ev.event_id: ev for ev in events}
 
         highlights = None
-        if isinstance(self.database_engine, PostgresEngine):
+        if isinstance(self.database_engine, PostgresEngine) and \
+           search_query is not None:
             highlights = yield self._find_highlights_in_postgres(search_query, events)
 
         count_sql += " GROUP BY room_id"
@@ -608,7 +623,8 @@ class SearchStore(SearchBackgroundUpdateStore):
             "results": [
                 {
                     "event": event_map[r["event_id"]],
-                    "rank": r["rank"],
+                    # TODO: this is an unranked search, what's this prop?
+                    "rank": r.get("rank", .1),
                     "pagination_token": "%s,%s"
                     % (r["origin_server_ts"], r["stream_ordering"]),
                 }

@@ -128,7 +128,7 @@ class SearchHandler(BaseHandler):
             room_cat = content["search_categories"]["room_events"]
 
             # The actual thing to query in FTS
-            search_term = room_cat["search_term"]
+            search_term = room_cat.get("search_term", None)
 
             # Which "keys" to search over in FTS query
             keys = room_cat.get(
@@ -218,7 +218,8 @@ class SearchHandler(BaseHandler):
 
         count = None
 
-        if order_by == "rank":
+        # TODO: implement missing search_term for ranked search
+        if order_by == "rank" and search_term is not None:
             search_result = await self.store.search_msgs(room_ids, search_term, keys)
 
             count = search_result["count"]
